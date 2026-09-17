@@ -20,7 +20,7 @@ import java.util.UUID
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
     private val store = ProjectStore(application)
     private val player = ExoPlayer.Builder(application).build()
-    private val _project = MutableStateFlow((store.load() ?: EditorProject()).let { p -> p.copy(layers = p.layers.filter { it.clips.isNotEmpty() }.mapIndexed { i, l -> l.copy(name = "Track " + (i + 1)) }) })
+    private val _project = MutableStateFlow((store.load() ?: EditorProject()).let { p -> p.copy(version = 2, layers = (if (p.version < 2) p.layers.filter { it.clips.isNotEmpty() } else p.layers).mapIndexed { i, l -> l.copy(name = "Track " + (i + 1)) }) })
     val project = _project.asStateFlow()
     private val _selectedClipId = MutableStateFlow<String?>(null)
     val selectedClipId = _selectedClipId.asStateFlow()
@@ -131,7 +131,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }) }
     }
     private fun update(block: (EditorProject) -> EditorProject) {
-        _project.value = block(_project.value).copy(updatedAt = System.currentTimeMillis())
+        _project.value = block(_project.value).copy(version = 2, updatedAt = System.currentTimeMillis())
         store.save(_project.value)
     }
     override fun onCleared() { player.release(); super.onCleared() }

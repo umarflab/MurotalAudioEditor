@@ -1,19 +1,22 @@
-# Murotal Audio Editor
+# Murotal Audio Editor 0.2.0
 
-Editor audio multitrack Android yang bekerja sepenuhnya offline dan menggunakan penyuntingan non-destruktif.
+Offline Android clip editor. Build: Gradle 8.9, JDK 17, Android SDK 35.
 
-## Milestone 1
+## Track and split controls
+- New projects start without empty tracks. Add Audio creates a track up to five tracks.
+- Add Track creates an empty track; names are Track 1 through Track 5.
+- Each track offers Add Audio and Move selected clip here. At five tracks, global Add Audio appends to Track 5.
+- Select a clip, tap or drag the ruler to position the red cursor, then press Gunting / Split.
+- Select either resulting segment to delete or edit it.
+- Zoom controls enlarge the shared proportional timeline; scroll horizontally to navigate.
+- Split respects speed, source trim, volume, mute, and pitch.
+- Selected-clip preview respects both trim boundaries.
+- Existing populated tracks are preserved and renamed; old unused default tracks are removed during migration.
+- Manual empty tracks created in version 0.2 persist across reopening.
 
-- Impor banyak audio tanpa konversi awal.
-- Dua layer awal: Murotal dan Suara Alam.
-- Klip disusun pada timeline dan dapat dipilih.
-- Duplikasi, trim awal/akhir, mute, hapus, dan volume per klip.
-- Speed 0,5x–2,0x dan pitch -12–+12 semitone.
-- Pratinjau klip menggunakan Media3.
-- Autosave proyek lokal dalam format data `.mae`.
-- Izin akses file sumber disimpan agar proyek dapat dibuka kembali.
-- Build APK debug otomatis melalui GitHub Actions.
+## Validation
+GitHub Actions runs unit tests for split boundaries and speed mapping, then builds the debug APK.
 
-## Batas milestone ini
-
-Waveform bertahap, pemindahan klip dengan gesture, split presisi, undo/redo, ekspor multitrack MP3/M4A/WAV/FLAC, serta Pack Project dikerjakan pada milestone berikutnya setelah fondasi impor dan timeline lulus uji perangkat.
+## Current limitations
+Playback previews the selected clip only. Waveform, full multitrack mixing, export, drag-and-drop between tracks, undo/redo and fade are not implemented.
+Projects autosave locally; this version has no portable project export.
