@@ -1,6 +1,11 @@
 package id.umarflab.murotalaudioeditor
 
 import android.os.Bundle
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -41,7 +46,7 @@ fun EditorScreen(vm: EditorViewModel) {
     val project by vm.project.collectAsState()
     val selectedId by vm.selectedClipId.collectAsState()
     val isPlaying by vm.isPlaying.collectAsState()
-    var targetLayer by remember { mutableIntStateOf(0) }
+    var targetLayer by remember { mutableIntStateOf(-1) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> vm.importUris(uris, targetLayer) }
     MaterialTheme(colorScheme = darkColorScheme(primary = Gold, surface = Panel, background = Dark)) {
         Scaffold(containerColor = Dark, topBar = {
@@ -55,14 +60,22 @@ fun EditorScreen(vm: EditorViewModel) {
             Surface(color = Panel) {
                 Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { if (isPlaying) vm.stop() else vm.playSelected() }) { Text(if (isPlaying) "Jeda" else "Putar") }
-                    OutlinedButton(onClick = { targetLayer = 0; launcher.launch(arrayOf("audio/*")) }) { Text("+ Murotal") }
-                    OutlinedButton(onClick = { targetLayer = 1; launcher.launch(arrayOf("audio/*")) }) { Text("+ Alam") }
+                    OutlinedButton(onClick = { targetLayer = -1; launcher.launch(arrayOf("audio/*")) }) { Text("+ Audio") }
+                    OutlinedButton(onClick = vm::addTrack, enabled = project.layers.size < 5) { Text("+ Track") }
                 }
             }
         }) { padding ->
             Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
                 Text("Timeline", Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
-                project.layers.forEach { LayerRow(it, selectedId, vm::select) }
+                Timeline(project, selectedId, vm)
+                project.layers.forEachIndexed { i, layer ->
+                    Row(Modifier.padding(horizontal = 12.dp)) {
+                        TextButton(onClick = { targetLayer = i; launcher.launch(arrayOf("audio/*")) }) { Text("+ Audio ke " + layer.name) }
+                        TextButton(onClick = { vm.moveSelected(i) }, enabled = selectedId != null) { Text("Pindahkan ke sini") }
+                    }
+                }
+                val message by vm.message.collectAsState()
+                Text(message, Modifier.padding(horizontal = 16.dp), color = Gold)
                 SelectedTools(project, selectedId, vm)
             }
         }
@@ -70,18 +83,60 @@ fun EditorScreen(vm: EditorViewModel) {
 }
 
 @Composable
-private fun LayerRow(layer: AudioLayer, selectedId: String?, onSelect: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-        Text(layer.name, color = Gold, fontWeight = FontWeight.SemiBold)
-        Row(Modifier.fillMaxWidth().heightIn(min = 82.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (layer.clips.isEmpty()) Box(Modifier.width(260.dp).height(72.dp).background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Text("Belum ada audio", color = Color.Gray) }
-            layer.clips.sortedBy { it.timelineStartMs }.forEach { clip ->
-                val width = (clip.editedDurationMs / 1000f * 3f).coerceIn(120f, 320f).dp
-                val color = if (clip.id == selectedId) Gold else Color(0xFF8B7040)
-                Column(Modifier.width(width).height(72.dp).background(color, RoundedCornerShape(8.dp)).clickable { onSelect(clip.id) }.padding(8.dp)) {
-                    Text(clip.name, color = Dark, maxLines = 1, fontWeight = FontWeight.Bold)
-                    Text(formatMs(clip.editedDurationMs), color = Dark)
-                    Text(if (clip.muted) "Senyap" else "Vol ${(clip.volume * 100).roundToInt()}%", color = Dark)
+private fun Timeline(project: EditorProject, selectedId: String?, vm: EditorViewModel) {
+    val position by vm.playhead.collectAsState()
+    var zoom by remember { mutableFloatStateOf(1f) }
+    val duration = maxOf(1000L, project.layers.flatMap { it.clips }.maxOfOrNull { it.timelineStartMs + it.editedDurationMs } ?: 1000L)
+    Column(Modifier.padding(12.dp)) {
+        Text("Posisi: " + formatMs(position) + " | Ketuk atau geser garis pada penggaris.")
+        Row {
+            TextButton(onClick = { zoom = (zoom / 2).coerceAtLeast(1f) }) { Text("Zoom −") }
+            TextButton(onClick = { zoom = (zoom * 2).coerceAtMost(64f) }) { Text("Zoom +") }
+            TextButton(onClick = vm::splitSelected, enabled = selectedId != null) { Text("Gunting / Split") }
+        }
+        if (project.layers.isEmpty()) Text("Tambahkan audio untuk membuat track pertama.")
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val timelineWidth = maxWidth * zoom
+            val scroll = rememberScrollState()
+            Column(Modifier.horizontalScroll(scroll)) {
+                Box(Modifier.width(timelineWidth).height((48 + project.layers.size * 82).dp)) {
+                    Column {
+                        Canvas(Modifier.width(timelineWidth).height(48.dp)
+                            .pointerInput(duration, timelineWidth) {
+                                detectTapGestures { vm.seek((it.x / size.width * duration).toLong().coerceIn(0, duration)) }
+                            }
+                            .pointerInput(duration, timelineWidth) {
+                                detectDragGestures { change, _ ->
+                                    change.consume()
+                                    vm.seek((change.position.x / size.width * duration).toLong().coerceIn(0, duration))
+                                }
+                            }) {
+                            for (i in 0..20) {
+                                val x = size.width * i / 20
+                                drawLine(Color.Gray, Offset(x, 24f), Offset(x, size.height))
+                            }
+                        }
+                        project.layers.forEach { layer ->
+                            Box(Modifier.width(timelineWidth).height(82.dp).background(Panel)) {
+                                layer.clips.forEach { clip ->
+                                    val start = timelineWidth * (clip.timelineStartMs.toFloat() / duration)
+                                    val width = timelineWidth * (clip.editedDurationMs.toFloat() / duration)
+                                    Column(Modifier.offset(x = start).width(width).height(74.dp)
+                                        .background(if (clip.id == selectedId) Gold else Color(0xFF8B7040), RoundedCornerShape(6.dp))
+                                        .clickable { vm.select(clip.id) }.padding(4.dp)) {
+                                        Text(layer.name, color = Dark, maxLines = 1)
+                                        Text(clip.name, color = Dark, maxLines = 1)
+                                        Text(formatMs(clip.editedDurationMs), color = Dark, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Canvas(Modifier.matchParentSize()) {
+                        val x = size.width * position.toFloat() / duration
+                        drawLine(Color.Red, Offset(x, 0f), Offset(x, size.height), 3.dp.toPx())
+                        drawCircle(Color.Red, 7.dp.toPx(), Offset(x, 12.dp.toPx()))
+                    }
                 }
             }
         }
