@@ -31,6 +31,17 @@ data class AudioLayer(
 data class EditorProject(
     val version: Int = 1,
     val name: String = "Proyek Baru",
-    val layers: List<AudioLayer> = listOf(AudioLayer(name = "Murotal"), AudioLayer(name = "Suara Alam")),
+    val layers: List<AudioLayer> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis()
 )
+
+fun AudioClip.splitAt(positionMs: Long): Pair<AudioClip, AudioClip>? {
+    val offset = positionMs - timelineStartMs
+    if (offset <= 0 || offset >= editedDurationMs) return null
+    val sourceCut = trimStartMs + (offset * speed.toDouble()).toLong()
+    if (sourceCut <= trimStartMs || sourceCut >= trimEndMs) return null
+    return copy(trimEndMs = sourceCut) to copy(
+        id = UUID.randomUUID().toString(), trimStartMs = sourceCut,
+        timelineStartMs = positionMs
+    )
+}

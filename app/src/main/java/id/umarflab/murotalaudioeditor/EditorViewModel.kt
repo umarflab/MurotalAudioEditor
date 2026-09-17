@@ -20,19 +20,49 @@ import java.util.UUID
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
     private val store = ProjectStore(application)
     private val player = ExoPlayer.Builder(application).build()
-    private val _project = MutableStateFlow(store.load() ?: EditorProject())
+    private val _project = MutableStateFlow((store.load() ?: EditorProject()).let { p -> p.copy(layers = p.layers.filter { it.clips.isNotEmpty() }.mapIndexed { i, l -> l.copy(name = "Track " + (i + 1)) }) })
     val project = _project.asStateFlow()
     private val _selectedClipId = MutableStateFlow<String?>(null)
     val selectedClipId = _selectedClipId.asStateFlow()
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying = _isPlaying.asStateFlow()
 
+    val playhead = MutableStateFlow(0L)
+    val message = MutableStateFlow("")
+    fun seek(ms: Long) { stop(); playhead.value = ms.coerceAtLeast(0) }
+    fun addTrack() {
+        if (_project.value.layers.size >= 5) { message.value = "Maksimal 5 track."; return }
+        update { it.copy(layers = it.layers + AudioLayer(name = "Track " + (it.layers.size + 1))) }
+    }
+    fun moveSelected(target: Int) {
+        val clip = findSelected() ?: return
+        if (target !in _project.value.layers.indices) return
+        stop()
+        update { p -> p.copy(layers = p.layers.mapIndexed { i, l ->
+            l.copy(clips = l.clips.filterNot { it.id == clip.id } + if (i == target) listOf(clip) else emptyList())
+        }) }
+    }
+    fun splitSelected() {
+        val clip = findSelected() ?: return
+        val parts = clip.splitAt(playhead.value)
+        if (parts == null) { message.value = "Letakkan garis di dalam klip yang dipilih."; return }
+        stop()
+        transformSelected { selected, layer ->
+            layer.copy(clips = layer.clips.flatMap { if (it.id == selected.id) listOf(parts.first, parts.second) else listOf(it) })
+        }
+        _selectedClipId.value = parts.second.id
+        message.value = "Klip terbagi. Pilih potongan untuk mengedit atau menghapus."
+    }
+
     fun importUris(uris: List<Uri>, targetLayer: Int) {
         viewModelScope.launch {
             val clips = withContext(Dispatchers.IO) { uris.mapNotNull(::readClip) }
+            if (clips.isEmpty()) { message.value = "Audio tidak dapat dibaca."; return@launch }
             update { project ->
                 val layers = project.layers.toMutableList()
-                val index = targetLayer.coerceIn(layers.indices)
+                if (targetLayer < 0 && layers.size < 5) layers.add(AudioLayer(name = "Track " + (layers.size + 1)))
+                if (layers.isEmpty()) layers.add(AudioLayer(name = "Track 1"))
+                val index = if (targetLayer < 0) layers.lastIndex else targetLayer.coerceIn(layers.indices)
                 val layer = layers[index]
                 var cursor = layer.clips.maxOfOrNull { it.timelineStartMs + it.editedDurationMs } ?: 0L
                 val positioned = clips.map { clip -> clip.copy(timelineStartMs = cursor).also { cursor += it.editedDurationMs } }
@@ -51,6 +81,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         retriever.setDataSource(getApplication(), uri)
         val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
         retriever.release()
+        require(duration >= 100) { "Audio terlalu pendek" }
         AudioClip(uri = uri.toString(), name = name, sourceDurationMs = duration)
     }.getOrNull()
 
@@ -74,7 +105,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun playSelected() {
         val clip = findSelected() ?: return
-        player.setMediaItem(MediaItem.fromUri(clip.uri), clip.trimStartMs)
+        player.setMediaItem(MediaItem.Builder().setUri(clip.uri).setClippingConfiguration(
+            MediaItem.ClippingConfiguration.Builder().setStartPositionMs(clip.trimStartMs).setEndPositionMs(clip.trimEndMs).build()
+        ).build())
         player.volume = if (clip.muted) 0f else clip.volume
         player.playbackParameters = PlaybackParameters(clip.speed, Math.pow(2.0, (clip.pitchSemitones / 12.0).toDouble()).toFloat())
         player.prepare()
