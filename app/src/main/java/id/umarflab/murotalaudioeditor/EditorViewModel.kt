@@ -34,13 +34,16 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (_project.value.layers.size >= 5) { message.value = "Maksimal 5 track."; return }
         update { it.copy(layers = it.layers + AudioLayer(name = "Track " + (it.layers.size + 1))) }
     }
-    fun moveSelected(target: Int) {
+    fun moveSelected(targetId: String) {
         val clip = findSelected() ?: return
-        if (target !in _project.value.layers.indices) return
         stop()
-        update { p -> p.copy(layers = p.layers.mapIndexed { i, l ->
-            l.copy(clips = l.clips.filterNot { it.id == clip.id } + if (i == target) listOf(clip) else emptyList())
-        }) }
+        update { it.moveClipTo(clip.id, targetId) }
+    }
+    fun deleteTrack(id: String) {
+        val layer = _project.value.layers.firstOrNull { it.id == id } ?: return
+        stop()
+        if (layer.clips.any { it.id == _selectedClipId.value }) _selectedClipId.value = null
+        update { it.removeTrack(id) }
     }
     fun splitSelected() {
         val clip = findSelected() ?: return
@@ -54,21 +57,23 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         message.value = "Klip terbagi. Pilih potongan untuk mengedit atau menghapus."
     }
 
-    fun importUris(uris: List<Uri>, targetLayer: Int) {
+    fun importUris(uris: List<Uri>, targetId: String?) {
+        if (uris.isEmpty()) return
         viewModelScope.launch {
             val clips = withContext(Dispatchers.IO) { uris.mapNotNull(::readClip) }
             if (clips.isEmpty()) { message.value = "Audio tidak dapat dibaca."; return@launch }
-            update { project ->
-                val layers = project.layers.toMutableList()
-                if (targetLayer < 0 && layers.size < 5) layers.add(AudioLayer(name = "Track " + (layers.size + 1)))
-                if (layers.isEmpty()) layers.add(AudioLayer(name = "Track 1"))
-                val index = if (targetLayer < 0) layers.lastIndex else targetLayer.coerceIn(layers.indices)
-                val layer = layers[index]
-                var cursor = layer.clips.maxOfOrNull { it.timelineStartMs + it.editedDurationMs } ?: 0L
-                val positioned = clips.map { clip -> clip.copy(timelineStartMs = cursor).also { cursor += it.editedDurationMs } }
-                layers[index] = layer.copy(clips = layer.clips + positioned)
-                project.copy(layers = layers)
+            if (targetId != null && _project.value.layers.none { it.id == targetId }) {
+                message.value = "Track tujuan sudah dihapus. Pilih track lagi."; return@launch
             }
+            if (targetId == null && _project.value.layers.size >= 5) {
+                message.value = "Maksimal 5 track. Pilih track yang tersedia."; return@launch
+            }
+            update { project ->
+                val destination = targetId ?: UUID.randomUUID().toString()
+                val layers = if (targetId == null) project.layers + AudioLayer(id = destination, name = "Track " + (project.layers.size + 1)) else project.layers
+                project.copy(layers = layers.map { if (it.id == destination) it.appendClips(clips) else it })
+            }
+            message.value = "Audio ditambahkan setelah klip terakhir."
         }
     }
 
@@ -88,7 +93,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun select(id: String) { _selectedClipId.value = id }
     fun duplicateSelected() = transformSelected { selected, layer ->
         val copy = selected.copy(id = UUID.randomUUID().toString(), timelineStartMs = selected.timelineStartMs + selected.editedDurationMs)
-        layer.copy(clips = layer.clips + copy)
+        layer.appendClips(listOf(copy))
     }
     fun deleteSelected() {
         val id = _selectedClipId.value ?: return
