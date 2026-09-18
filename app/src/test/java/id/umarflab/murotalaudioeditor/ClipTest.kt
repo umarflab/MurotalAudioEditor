@@ -19,3 +19,4 @@ class ClipTest {
         for (p in listOf(0L, 2000L, 12000L, 13000L)) assertNull(clip.splitAt(p))
     }
 }
+
