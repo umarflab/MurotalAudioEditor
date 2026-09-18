@@ -30,5 +30,6 @@ class ExportBenchmarkTest {
         val directory=File(context.getExternalFilesDir(null),"ui-checks").apply { mkdirs() }
         File(directory,"export-benchmark.txt").writeText("Android emulator API 29 x86_64. 30-second mix; 2 tracks, 6 identical 10-second WAV clips; M4A 192 kbps. Single run per implementation, legacy first. Warm filesystem/cache may favor second run.\nLegacy: $oldMs ms\nUpdated: $newMs ms\nNot a guarantee of phone performance.\n")
         source.delete();output.delete()
+        Unit
     }
 }
