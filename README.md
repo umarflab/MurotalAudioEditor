@@ -20,3 +20,4 @@ GitHub Actions runs unit tests for split boundaries and speed mapping, then buil
 ## Current limitations
 Playback previews the selected clip only. Waveform, full multitrack mixing, export, drag-and-drop between tracks, undo/redo and fade are not implemented.
 Projects autosave locally; this version has no portable project export.
+

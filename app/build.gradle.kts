@@ -10,10 +10,11 @@ android {
     compileSdk = 35
     defaultConfig {
         applicationId = "id.umarflab.murotalaudioeditor"
+        testInstrumentationRunner = "android.test.InstrumentationTestRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.3.0"
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -34,3 +35,4 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 }
+

@@ -66,3 +66,19 @@ fun EditorProject.moveClipTo(clipId: String, targetId: String): EditorProject {
 }
 fun EditorProject.removeTrack(trackId: String): EditorProject =
     copy(layers = layers.filterNot { it.id == trackId }.mapIndexed { i, l -> l.copy(name = "Track " + (i + 1)) })
+
+
+/** Place at the requested position; snap forward out of any occupied interval. */
+fun EditorProject.placeClip(clipId: String, destinationId: String, requestedMs: Long): EditorProject {
+    val clip=layers.flatMap { it.clips }.firstOrNull { it.id==clipId } ?: return this
+    val target=layers.firstOrNull { it.id==destinationId } ?: return this
+    var start=requestedMs.coerceAtLeast(0)
+    target.clips.filterNot { it.id==clipId }.sortedBy { it.timelineStartMs }.forEach { other ->
+        if(start < other.timelineStartMs+other.editedDurationMs && start+clip.editedDurationMs > other.timelineStartMs)
+            start=other.timelineStartMs+other.editedDurationMs
+    }
+    return copy(layers=layers.map { l ->
+        val remaining=l.clips.filterNot { it.id==clipId }
+        l.copy(clips=if(l.id==destinationId) remaining+clip.copy(timelineStartMs=start) else remaining)
+    })
+}

@@ -1,6 +1,11 @@
 package id.umarflab.murotalaudioeditor
 
 import android.os.Bundle
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -46,11 +51,43 @@ fun EditorScreen(vm: EditorViewModel) {
     val project by vm.project.collectAsState()
     val selectedId by vm.selectedClipId.collectAsState()
     val isPlaying by vm.isPlaying.collectAsState()
+    val projectBusy by vm.projectBusy.collectAsState()
+    val exportBusy by ExportService.busy.collectAsState()
+    val exportStatus by ExportService.status.collectAsState()
+    var exportDialog by remember { mutableStateOf(false) }
+    var exportFormat by rememberSaveable { mutableStateOf("M4A") }
+    var exportBitrate by rememberSaveable { mutableIntStateOf(192000) }
+    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { it?.let(vm::saveProject) }
+    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(vm::openProject) }
+    val wavLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/wav")) { it?.let { uri -> vm.exportAudio(uri,"WAV",exportBitrate) } }
+    val aacLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/mp4")) { it?.let { uri -> vm.exportAudio(uri,"M4A",exportBitrate) } }
     var targetLayer by remember { mutableStateOf<String?>(null) }
     var chooseTrack by remember { mutableStateOf(false) }
     var deleteTrackId by remember { mutableStateOf<String?>(null) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> vm.importUris(uris, targetLayer) }
     MaterialTheme(colorScheme = darkColorScheme(primary = Gold, surface = Panel, background = Dark)) {
+        if (exportDialog) AlertDialog(
+            onDismissRequest = { exportDialog=false },
+            title = { Text("Ekspor semua track") },
+            text = { Column {
+                Text("Format")
+                Row { listOf("M4A","WAV").forEach { format ->
+                    TextButton(onClick={exportFormat=format}) { Text((if(exportFormat==format) "• " else "")+format) }
+                } }
+                if(exportFormat=="M4A") {
+                    Text("Kualitas AAC")
+                    listOf(128000,192000,320000).forEach { rate ->
+                        TextButton(onClick={exportBitrate=rate}) { Text((if(rate==exportBitrate) "• " else "")+(rate/1000)+" kbps") }
+                    }
+                } else Text("PCM 16-bit, stereo, 44,1 kHz")
+                Text("Hasil mengikuti posisi klip, trim, volume, mute, speed, dan pitch.")
+            } },
+            confirmButton = { TextButton(onClick={
+                exportDialog=false
+                if(exportFormat=="WAV") wavLauncher.launch("Audio-edit.wav") else aacLauncher.launch("Audio-edit.m4a")
+            }) { Text("Pilih lokasi dan ekspor") } },
+            dismissButton = { TextButton(onClick={exportDialog=false}) { Text("Batal") } }
+        )
         if (chooseTrack) AlertDialog(
             onDismissRequest = { chooseTrack = false },
             title = { Text("Tambah audio ke track") },
@@ -79,19 +116,33 @@ fun EditorScreen(vm: EditorViewModel) {
             Surface(color = Panel) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Murotal Audio Editor", fontWeight = FontWeight.Bold)
-                    TextButton(onClick = vm::save) { Text("Simpan") }
+
                 }
             }
         }, bottomBar = {
             Surface(color = Panel) {
-                Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { if (isPlaying) vm.stop() else vm.playSelected() }) { Text(if (isPlaying) "Jeda" else "Putar") }
-                    OutlinedButton(onClick = { chooseTrack = true }) { Text("+ Audio") }
-                    OutlinedButton(onClick = vm::addTrack, enabled = project.layers.size < 5) { Text("+ Track") }
+                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        Button(onClick=vm::playAll, enabled=!exportBusy && !projectBusy) { Text("Putar semua") }
+                        OutlinedButton(onClick=vm::playSelected, enabled=selectedId!=null && !exportBusy && !projectBusy) { Text("Track terpilih") }
+                        TextButton(onClick=vm::stop, enabled=isPlaying) { Text("Jeda") }
+                    }
+                    Row {
+                        OutlinedButton(onClick = { chooseTrack = true }, enabled=!projectBusy) { Text("+ Audio") }
+                        OutlinedButton(onClick = vm::addTrack, enabled = project.layers.size < 5 && !projectBusy) { Text("+ Track") }
+                    }
                 }
             }
         }) { padding ->
             Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    TextButton(onClick={saveLauncher.launch("Proyek-audio.mae")}, enabled=!projectBusy) { Text("Simpan proyek") }
+                    TextButton(onClick={openLauncher.launch(arrayOf("application/json","application/octet-stream","*/*"))}, enabled=!projectBusy && !exportBusy) { Text("Buka proyek") }
+                    TextButton(onClick={exportDialog=true}, enabled=!projectBusy && !exportBusy && project.layers.any { it.clips.isNotEmpty() }) { Text("Ekspor") }
+                }
+                if(projectBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if(exportStatus.isNotBlank()) Text(exportStatus,Modifier.padding(12.dp),color=Gold)
+                if(exportBusy) TextButton(onClick=vm::cancelExport) { Text("Batalkan ekspor") }
                 Text("Timeline", Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
                 Timeline(project, selectedId, vm)
                 project.layers.forEach { layer ->
@@ -117,6 +168,7 @@ fun EditorScreen(vm: EditorViewModel) {
 @Composable
 private fun Timeline(project: EditorProject, selectedId: String?, vm: EditorViewModel) {
     val position by vm.playhead.collectAsState()
+    val density=LocalDensity.current
     var zoom by remember { mutableFloatStateOf(1f) }
     val duration = maxOf(1000L, project.layers.flatMap { it.clips }.maxOfOrNull { it.timelineStartMs + it.editedDurationMs } ?: 1000L)
     Column(Modifier.padding(12.dp)) {
@@ -127,6 +179,7 @@ private fun Timeline(project: EditorProject, selectedId: String?, vm: EditorView
             TextButton(onClick = vm::splitSelected, enabled = selectedId != null) { Text("Gunting / Split") }
         }
         if (project.layers.isEmpty()) Text("Tambahkan audio untuk membuat track pertama.")
+        Text("Tekan-tahan klip, lalu seret untuk memindahkan. Jika bertabrakan, klip dirapatkan setelah klip lain.")
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val timelineWidth = maxWidth * zoom
             val scroll = rememberScrollState()
@@ -148,13 +201,31 @@ private fun Timeline(project: EditorProject, selectedId: String?, vm: EditorView
                                 drawLine(Color.Gray, Offset(x, 24f), Offset(x, size.height))
                             }
                         }
-                        project.layers.forEach { layer ->
+                        project.layers.forEachIndexed { layerIndex, layer ->
                             Box(Modifier.width(timelineWidth).height(82.dp).background(Panel)) {
                                 Text(layer.name + " · Kosong", Modifier.padding(8.dp), color = Color.Gray)
                                 layer.clips.forEach { clip ->
+                                    var drag by remember(clip.id) { mutableStateOf(Offset.Zero) }
+                                    val widthPx=with(density) { timelineWidth.toPx() }
+                                    val rowPx=with(density) { 82.dp.toPx() }
                                     val start = timelineWidth * (clip.timelineStartMs.toFloat() / duration)
                                     val width = timelineWidth * (clip.editedDurationMs.toFloat() / duration)
-                                    Column(Modifier.offset(x = start).width(width).height(74.dp)
+                                    Column(Modifier.offset(x = start).offset { IntOffset(drag.x.roundToInt(),drag.y.roundToInt()) }
+                                        .zIndex(if(drag!=Offset.Zero) 2f else 0f)
+                                        .width(width).height(74.dp)
+                                        .pointerInput(clip.id,clip.timelineStartMs,layerIndex,widthPx,duration) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart={ vm.select(clip.id); vm.stop() },
+                                                onDragCancel={ drag=Offset.Zero },
+                                                onDragEnd={
+                                                    val target=(layerIndex+(drag.y/rowPx).roundToInt()).coerceIn(0,project.layers.lastIndex)
+                                                    val time=clip.timelineStartMs+(drag.x/widthPx*duration).toLong()
+                                                    vm.dragClip(clip.id,project.layers[target].id,time)
+                                                    drag=Offset.Zero
+                                                },
+                                                onDrag={ change,amount -> change.consume(); drag+=amount }
+                                            )
+                                        }
                                         .background(if (clip.id == selectedId) Gold else Color(0xFF8B7040), RoundedCornerShape(6.dp))
                                         .clickable { vm.select(clip.id) }.padding(4.dp)) {
                                         Text(layer.name, color = Dark, maxLines = 1)
@@ -211,3 +282,4 @@ private fun ToolSlider(label: String, value: Float, range: ClosedFloatingPointRa
 }
 
 private fun formatMs(ms: Long): String { val total = ms / 1000; return "%02d:%02d".format(total / 60, total % 60) }
+
