@@ -46,9 +46,35 @@ fun EditorScreen(vm: EditorViewModel) {
     val project by vm.project.collectAsState()
     val selectedId by vm.selectedClipId.collectAsState()
     val isPlaying by vm.isPlaying.collectAsState()
-    var targetLayer by remember { mutableIntStateOf(-1) }
+    var targetLayer by remember { mutableStateOf<String?>(null) }
+    var chooseTrack by remember { mutableStateOf(false) }
+    var deleteTrackId by remember { mutableStateOf<String?>(null) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> vm.importUris(uris, targetLayer) }
     MaterialTheme(colorScheme = darkColorScheme(primary = Gold, surface = Panel, background = Dark)) {
+        if (chooseTrack) AlertDialog(
+            onDismissRequest = { chooseTrack = false },
+            title = { Text("Tambah audio ke track") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("Audio akan ditambahkan setelah klip terakhir.")
+                project.layers.forEach { layer ->
+                    TextButton(onClick = {
+                        targetLayer = layer.id; chooseTrack = false; launcher.launch(arrayOf("audio/*"))
+                    }) { Text(layer.name) }
+                }
+                if (project.layers.size < 5) TextButton(onClick = {
+                    targetLayer = null; chooseTrack = false; launcher.launch(arrayOf("audio/*"))
+                }) { Text("+ Track baru") }
+            } },
+            confirmButton = { TextButton(onClick = { chooseTrack = false }) { Text("Batal") } }
+        )
+        val deleting = project.layers.firstOrNull { it.id == deleteTrackId }
+        if (deleting != null) AlertDialog(
+            onDismissRequest = { deleteTrackId = null },
+            title = { Text("Hapus " + deleting.name + "?") },
+            text = { Text("Track beserta " + deleting.clips.size + " klip dihapus dari proyek. File audio asli tetap tersimpan.") },
+            confirmButton = { TextButton(onClick = { vm.deleteTrack(deleting.id); deleteTrackId = null }) { Text("Hapus track") } },
+            dismissButton = { TextButton(onClick = { deleteTrackId = null }) { Text("Batal") } }
+        )
         Scaffold(containerColor = Dark, topBar = {
             Surface(color = Panel) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -60,7 +86,7 @@ fun EditorScreen(vm: EditorViewModel) {
             Surface(color = Panel) {
                 Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { if (isPlaying) vm.stop() else vm.playSelected() }) { Text(if (isPlaying) "Jeda" else "Putar") }
-                    OutlinedButton(onClick = { targetLayer = -1; launcher.launch(arrayOf("audio/*")) }) { Text("+ Audio") }
+                    OutlinedButton(onClick = { chooseTrack = true }) { Text("+ Audio") }
                     OutlinedButton(onClick = vm::addTrack, enabled = project.layers.size < 5) { Text("+ Track") }
                 }
             }
@@ -68,10 +94,16 @@ fun EditorScreen(vm: EditorViewModel) {
             Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
                 Text("Timeline", Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
                 Timeline(project, selectedId, vm)
-                project.layers.forEachIndexed { i, layer ->
-                    Row(Modifier.padding(horizontal = 12.dp)) {
-                        TextButton(onClick = { targetLayer = i; launcher.launch(arrayOf("audio/*")) }) { Text("+ Audio ke " + layer.name) }
-                        TextButton(onClick = { vm.moveSelected(i) }, enabled = selectedId != null) { Text("Pindahkan ke sini") }
+                project.layers.forEach { layer ->
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        Text(layer.name + " · " + layer.clips.size + " klip", color = Gold)
+                        Row {
+                            TextButton(onClick = { targetLayer = layer.id; launcher.launch(arrayOf("audio/*")) }) { Text("+ Audio") }
+                            TextButton(onClick = { vm.moveSelected(layer.id) }, enabled = selectedId != null) { Text("Pindahkan ke sini") }
+                        }
+                        TextButton(onClick = {
+                            if (layer.clips.isEmpty()) vm.deleteTrack(layer.id) else deleteTrackId = layer.id
+                        }) { Text("Hapus track") }
                     }
                 }
                 val message by vm.message.collectAsState()
@@ -118,6 +150,7 @@ private fun Timeline(project: EditorProject, selectedId: String?, vm: EditorView
                         }
                         project.layers.forEach { layer ->
                             Box(Modifier.width(timelineWidth).height(82.dp).background(Panel)) {
+                                Text(layer.name + " · Kosong", Modifier.padding(8.dp), color = Color.Gray)
                                 layer.clips.forEach { clip ->
                                     val start = timelineWidth * (clip.timelineStartMs.toFloat() / duration)
                                     val width = timelineWidth * (clip.editedDurationMs.toFloat() / duration)

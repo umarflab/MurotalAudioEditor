@@ -45,3 +45,24 @@ fun AudioClip.splitAt(positionMs: Long): Pair<AudioClip, AudioClip>? {
         timelineStartMs = positionMs
     )
 }
+
+fun AudioLayer.appendClips(incoming: List<AudioClip>): AudioLayer {
+    var end = clips.maxOfOrNull { it.timelineStartMs + it.editedDurationMs } ?: 0L
+    return copy(clips = clips + incoming.map { clip ->
+        clip.copy(timelineStartMs = end).also { end += it.editedDurationMs }
+    })
+}
+fun EditorProject.moveClipTo(clipId: String, targetId: String): EditorProject {
+    val source = layers.firstOrNull { l -> l.clips.any { it.id == clipId } } ?: return this
+    if (source.id == targetId || layers.none { it.id == targetId }) return this
+    val clip = source.clips.first { it.id == clipId }
+    return copy(layers = layers.map { l ->
+        when (l.id) {
+            source.id -> l.copy(clips = l.clips.filterNot { it.id == clipId })
+            targetId -> l.appendClips(listOf(clip))
+            else -> l
+        }
+    })
+}
+fun EditorProject.removeTrack(trackId: String): EditorProject =
+    copy(layers = layers.filterNot { it.id == trackId }.mapIndexed { i, l -> l.copy(name = "Track " + (i + 1)) })
