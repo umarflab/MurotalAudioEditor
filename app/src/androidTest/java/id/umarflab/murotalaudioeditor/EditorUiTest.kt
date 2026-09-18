@@ -26,11 +26,17 @@ class EditorUiTest {
                 assertTrue(device.wait(Until.hasObject(By.text("Bacaan.mp3")),10000))
                 device.findObject(By.text("Bacaan.mp3")).click()
                 device.waitForIdle()
-                assertTrue(device.hasObject(By.text("Speed")))
-                assertTrue(device.hasObject(By.text("Pitch")))
-                assertFalse(device.hasObject(By.textContains("Tekan-tahan")))
                 val directory=File(context.getExternalFilesDir(null),"ui-checks").apply { mkdirs() }
                 device.takeScreenshot(File(directory,"editor-five-tracks.png"))
+                // Small screens intentionally scroll; transport and header remain fixed.
+                if(!device.hasObject(By.text("Speed"))) {
+                    device.swipe(device.displayWidth/2,device.displayHeight*3/4,device.displayWidth/2,device.displayHeight/3,20)
+                    device.waitForIdle()
+                }
+                assertTrue("Speed is reachable",device.hasObject(By.text("Speed")))
+                assertTrue("Pitch is reachable",device.hasObject(By.text("Pitch")))
+                assertFalse(device.hasObject(By.textContains("Tekan-tahan")))
+                device.takeScreenshot(File(directory,"editor-tools.png"))
                 device.findObject(By.text("Semua track")).click()
                 assertTrue(device.wait(Until.hasObject(By.text("Track terpilih")),5000))
                 device.findObject(By.text("Track terpilih")).click()
