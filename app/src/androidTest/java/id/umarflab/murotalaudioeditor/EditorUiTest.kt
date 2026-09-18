@@ -47,6 +47,7 @@ class EditorUiTest {
                 assertTrue(device.hasObject(By.text("320 kbps")))
                 device.waitForIdle()
                 device.takeScreenshot(File(directory,"export-quality.png"))
+                preserveTestArtifacts(directory)
             }
         } finally {
             if(old!=null) store.save(old) else File(context.filesDir,"autosave.mae").delete()
