@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
+import androidx.activity.SystemBarStyle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -47,7 +48,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<EditorViewModel>()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(statusBarStyle=SystemBarStyle.dark(0xFF252117.toInt()),navigationBarStyle=SystemBarStyle.dark(0xFF252117.toInt()))
         setContent { EditorScreen(viewModel) }
     }
 }
