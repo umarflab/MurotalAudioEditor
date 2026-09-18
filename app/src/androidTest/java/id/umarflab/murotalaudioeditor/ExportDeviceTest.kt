@@ -3,7 +3,7 @@ package id.umarflab.murotalaudioeditor
 import android.test.InstrumentationTestCase
 import android.net.Uri
 import android.media.MediaMetadataRetriever
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -46,6 +46,26 @@ class ExportDeviceTest : InstrumentationTestCase() {
         val sped=p.copy(layers=listOf(AudioLayer(name="Track 1",clips=listOf(c.copy(trimStartMs=200,trimEndMs=800,speed=2f,pitchSemitones=3f)))))
         AudioExport(context).render(sped,Uri.fromFile(wav),"WAV",192000) {}
         assertEquals(44L+13230*4,wav.length())
+        withContext(Dispatchers.Main) {
+            val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main)
+            var ended=false
+            var lastPosition=0L
+            var error:String?=null
+            val player=TimelinePlayer(context,scope,{lastPosition=it},{ended=!it},{error=it})
+            try {
+                player.play(p.layers.flatMap { it.clips },0,1500)
+                withTimeout(15000) { while(!ended) delay(50) }
+                assertNull(error)
+                assertEquals(1500L,lastPosition)
+                // Repeated mode switching must not release players of the next session.
+                player.play(listOf(c),0,1000)
+                delay(50)
+                player.play(p.layers.flatMap { it.clips },500,1500)
+                withTimeout(15000) { while(!ended) delay(50) }
+                assertNull(error)
+                assertEquals(1500L,lastPosition)
+            } finally { player.stop(); scope.cancel() }
+        }
         listOf(source,projectFile,wav,aac).forEach { it.delete() }
     }
 }

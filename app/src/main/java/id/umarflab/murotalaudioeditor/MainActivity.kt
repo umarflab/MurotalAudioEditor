@@ -122,7 +122,7 @@ fun EditorScreen(vm: EditorViewModel) {
         }, bottomBar = {
             Surface(color = Panel) {
                 Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         Button(onClick=vm::playAll, enabled=!exportBusy && !projectBusy) { Text("Putar semua") }
                         OutlinedButton(onClick=vm::playSelected, enabled=selectedId!=null && !exportBusy && !projectBusy) { Text("Track terpilih") }
                         TextButton(onClick=vm::stop, enabled=isPlaying) { Text("Jeda") }
