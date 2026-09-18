@@ -10,7 +10,7 @@ android {
     compileSdk = 35
     defaultConfig {
         applicationId = "id.umarflab.murotalaudioeditor"
-        testInstrumentationRunner = "android.test.InstrumentationTestRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 35
         versionCode = 4
@@ -24,6 +24,8 @@ android {
 }
 
 dependencies {
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("junit:junit:4.13.2")
     testImplementation("junit:junit:4.13.2")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")

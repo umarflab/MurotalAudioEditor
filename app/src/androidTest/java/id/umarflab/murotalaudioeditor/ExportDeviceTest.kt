@@ -1,6 +1,8 @@
 package id.umarflab.murotalaudioeditor
 
-import android.test.InstrumentationTestCase
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Test
+import org.junit.Assert.*
 import android.net.Uri
 import android.media.MediaMetadataRetriever
 import kotlinx.coroutines.*
@@ -9,9 +11,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.*
 
-class ExportDeviceTest : InstrumentationTestCase() {
-    fun testMixSaveOpenAndAac() = runBlocking {
-        val context=instrumentation.targetContext
+class ExportDeviceTest {
+    @Test fun testMixSaveOpenAndAac() = runBlocking {
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
         val source=File(context.cacheDir,"test-source.wav")
         val samples=ByteBuffer.allocate(44100*4).order(ByteOrder.LITTLE_ENDIAN)
         repeat(44100) { i -> val s=(sin(2*PI*440*i/44100)*4000).toInt().toShort(); samples.putShort(s); samples.putShort(s) }
