@@ -44,6 +44,28 @@ class ExportDeviceTest {
             val duration=metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
             assertTrue("AAC duration $duration",duration in 1400..1700)
         } finally { metadata.release() }
+        val mp3Sizes=mutableListOf<Long>()
+        for(rate in listOf(128000,192000,320000)) {
+            val mp3=File(context.cacheDir,"test-$rate.mp3")
+            AudioExport(context).render(p,Uri.fromFile(mp3),"MP3",rate) {}
+            mp3Sizes.add(mp3.length())
+            val reader=MediaMetadataRetriever()
+            try {
+                reader.setDataSource(mp3.path)
+                val duration=reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+                assertTrue("MP3 $rate duration $duration",duration in 1400..1800)
+            } finally { reader.release() }
+            // Decode encoded MP3 back to PCM, checking it contains audible samples.
+            val decoded=File(context.cacheDir,"mp3-decoded.wav")
+            val encodedClip=c.copy(uri=Uri.fromFile(mp3).toString(),sourceDurationMs=1500,trimEndMs=1500)
+            AudioExport(context).render(p.copy(layers=listOf(AudioLayer(name="Track 1",clips=listOf(encodedClip)))),Uri.fromFile(decoded),"WAV",192000) {}
+            val pcm=ByteBuffer.wrap(decoded.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+            var peak=0
+            for(i in 44 until pcm.capacity()-1 step 2) peak=max(peak,abs(pcm.getShort(i).toInt()))
+            assertTrue("Decoded MP3 is audible",peak>1000)
+            decoded.delete();mp3.delete()
+        }
+        assertTrue(mp3Sizes[0]<mp3Sizes[1] && mp3Sizes[1]<mp3Sizes[2])
         // Exercise speed, pitch, and trim through Sonic, not just model arithmetic.
         val sped=p.copy(layers=listOf(AudioLayer(name="Track 1",clips=listOf(c.copy(trimStartMs=200,trimEndMs=800,speed=2f,pitchSemitones=3f)))))
         AudioExport(context).render(sped,Uri.fromFile(wav),"WAV",192000) {}

@@ -1,0 +1,7 @@
+This app uses the LAME MP3 encoding engine (LGPL version 2 or later).
+Copyright (c) 1999-2017 The LAME developers. https://lame.sourceforge.io/
+The engine is dynamically linked as libmp3lame.so. The original upstream Java/JNI wrapper is not included.
+Corresponding core source, pinned to commit 59616bf8f046623df23f58ecba4301e30a4baa4c:
+https://github.com/naman14/TAndroidLame/tree/59616bf8f046623df23f58ecba4301e30a4baa4c/androidlame/src/main/jni/libmp3lame
+Build/relink instructions: https://github.com/umarflab/MurotalAudioEditor/blob/main/README.md
+You may modify the library and rebuild/relink the app for your own use. Reverse engineering for debugging those modifications is permitted. See LAME-LICENSE.txt.
