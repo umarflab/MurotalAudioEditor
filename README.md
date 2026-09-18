@@ -40,6 +40,7 @@ Compact editor with project menu, per-track menu, tool grid and contextual slide
 Transport offers all tracks or the selected track. MP3 and M4A offer 128/192/320 kbps;
 WAV remains stereo 16-bit 44.1 kHz. Export reuses decoded PCM for identical clips,
 uses bulk mono/stereo writes, and reduces codec polling delays and buffer allocations.
+MP3 receives mixed PCM blocks directly, skipping a full intermediate WAV file.
 Long recordings still require decoding, mixing and encoding; device speed and storage
 will affect export time. Project files remain editable `.mae` JSON references.
 
