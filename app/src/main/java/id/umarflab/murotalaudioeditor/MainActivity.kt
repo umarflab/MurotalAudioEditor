@@ -89,7 +89,7 @@ fun EditorScreen(vm: EditorViewModel) {
         bodyLarge=TextStyle(fontSize=14.sp,lineHeight=20.sp), bodyMedium=TextStyle(fontSize=13.sp,lineHeight=18.sp),
         bodySmall=TextStyle(fontSize=11.sp,lineHeight=16.sp), labelLarge=TextStyle(fontSize=12.sp,fontWeight=FontWeight.Medium),
         titleLarge=TextStyle(fontSize=19.sp,fontWeight=FontWeight.Medium), titleMedium=TextStyle(fontSize=14.sp,fontWeight=FontWeight.Medium))
-    MaterialTheme(colorScheme=darkColorScheme(primary=Gold,surface=Panel,background=Dark),typography=type) {
+    MaterialTheme(colorScheme=darkColorScheme(primary=Gold,onPrimary=Dark,secondary=Gold,secondaryContainer=Color(0xFF514126),onSecondaryContainer=Color(0xFFE6DDCD),surface=Panel,background=Dark),typography=type) {
         if(exportDialog) ModalBottomSheet(onDismissRequest={exportDialog=false},containerColor=Panel) {
             Column(Modifier.padding(horizontal=24.dp).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Text("Ekspor audio",style=MaterialTheme.typography.titleLarge)
