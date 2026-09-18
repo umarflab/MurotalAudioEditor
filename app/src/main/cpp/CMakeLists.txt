@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(audio_mp3 LANGUAGES C)
+include(FetchContent)
+FetchContent_Declare(lame_source
+    GIT_REPOSITORY https://github.com/naman14/TAndroidLame.git
+    GIT_TAG 59616bf8f046623df23f58ecba4301e30a4baa4c)
+FetchContent_GetProperties(lame_source)
+if(NOT lame_source_POPULATED)
+    FetchContent_Populate(lame_source)
+endif()
+# Only the LGPL LAME core is compiled; the upstream GPL wrapper is not used.
+set(LAME_DIR ${lame_source_SOURCE_DIR}/androidlame/src/main/jni/libmp3lame)
+set(LAME_FILES bitstream encoder fft gain_analysis id3tag lame mpglib_interface newmdct presets psymodel quantize quantize_pvt reservoir set_get tables takehiro util vbrquantize VbrTag version)
+foreach(name IN LISTS LAME_FILES)
+    list(APPEND LAME_SOURCES ${LAME_DIR}/${name}.c)
+endforeach()
+add_library(mp3lame SHARED ${LAME_SOURCES})
+target_include_directories(mp3lame PUBLIC ${LAME_DIR})
+target_compile_definitions(mp3lame PRIVATE STDC_HEADERS HAVE_INTTYPES_H)
+target_compile_options(mp3lame PRIVATE -O3)
+target_link_libraries(mp3lame m)
+add_library(audio_mp3 SHARED mp3_bridge.c)
+target_link_libraries(audio_mp3 mp3lame)
+# Support devices with 16 KB memory pages.
+target_link_options(mp3lame PRIVATE -Wl,-z,max-page-size=16384)
+target_link_options(audio_mp3 PRIVATE -Wl,-z,max-page-size=16384)

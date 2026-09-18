@@ -32,3 +32,27 @@ GitHub Actions runs unit tests and builds a debug APK. Android 10 emulator tests
 
 ## Still pending
 Waveform, fade, undo/redo, bundled portable projects, MP3/FLAC encoders and automatic edge scrolling.
+
+
+## Version 0.4.0
+
+Compact editor with project menu, per-track menu, tool grid and contextual sliders.
+Transport offers all tracks or the selected track. MP3 and M4A offer 128/192/320 kbps;
+WAV remains stereo 16-bit 44.1 kHz. Export reuses decoded PCM for identical clips,
+uses bulk mono/stereo writes, and reduces codec polling delays and buffer allocations.
+Long recordings still require decoding, mixing and encoding; device speed and storage
+will affect export time. Project files remain editable `.mae` JSON references.
+
+### Native MP3 source and rebuilding
+
+LAME core is LGPL-2.0-or-later, dynamically linked as `libmp3lame.so`.
+Notices and full license are in `app/src/main/assets` and accessible from the app menu.
+CMake fetches the exact source commit documented in `LAME-NOTICE.txt`; it does not
+compile the upstream GPL Java/JNI wrapper. Our JNI bridge is in `app/src/main/cpp`.
+To rebuild or relink with a modified LAME, install JDK 17, Gradle 8.9, Android SDK 35,
+NDK 27.0.12077973 and CMake 3.22.1. Clone this repository, replace `LAME_DIR` in
+CMakeLists.txt with the path to your modified core (and omit FetchContent if desired),
+then run `gradle :app:assembleDebug`. The resulting APK includes the rebuilt shared
+library and can be signed and installed normally. Reverse engineering for debugging
+modifications to the LGPL library is permitted. CI also publishes the corresponding
+unmodified core source alongside the APK.

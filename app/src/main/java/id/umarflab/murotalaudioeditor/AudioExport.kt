@@ -17,6 +17,8 @@ import kotlin.math.*
 class AudioExport(private val context: Context) {
     companion object { const val RATE = 44100 }
     suspend fun render(project: EditorProject, destination: Uri, format: String, bitrate: Int, progress: (String) -> Unit) {
+        require(format in setOf("WAV", "M4A", "MP3")) { "Format ekspor tidak dikenal" }
+        require(bitrate in setOf(128000,192000,320000)) { "Kualitas tidak didukung" }
         val all = project.layers.flatMap { it.clips }
         require(all.isNotEmpty()) { "Proyek kosong" }
         val duration = all.maxOf { it.timelineStartMs + it.editedDurationMs }
@@ -28,14 +30,21 @@ class AudioExport(private val context: Context) {
             val needed=clips.sumOf { it.editedDurationMs * RATE / 1000 * 4 } + frames*8 + 32*1024*1024
             require(work.usableSpace > needed) { "Penyimpanan kosong tidak cukup untuk ekspor" }
             val files=mutableListOf<Pair<AudioClip,File>>()
+            val decoded=mutableMapOf<List<Any>,File>()
             clips.forEachIndexed { i,c ->
                 currentCoroutineContext().ensureActive()
                 progress("Memproses audio " + (i+1) + "/" + clips.size)
-                val f=File(work,"clip-$i.pcm"); decode(c,f); files.add(c to f)
+                val key=listOf(c.uri,c.trimStartMs,c.trimEndMs,c.speed,c.pitchSemitones)
+                val f=decoded[key] ?: File(work,"clip-$i.pcm").also { decode(c,it); decoded[key]=it }
+                files.add(c to f)
             }
             val wav=File(work,"mix.wav")
             mix(files,frames,wav,progress)
-            val result=if(format=="M4A") File(work,"mix.m4a").also { encodeAac(wav,it,bitrate,progress) } else wav
+            val result=when(format) {
+                "M4A" -> File(work,"mix.m4a").also { encodeAac(wav,it,bitrate,progress) }
+                "MP3" -> File(work,"mix.mp3").also { encodeMp3(wav,it,bitrate,progress) }
+                else -> wav
+            }
             currentCoroutineContext().ensureActive()
             progress("Menyimpan hasil")
             requireNotNull(context.contentResolver.openOutputStream(destination,"wt")).use { output ->
@@ -60,20 +69,30 @@ class AudioExport(private val context: Context) {
             val decoder=MediaCodec.createDecoderByType(requireNotNull(fmt.getString(MediaFormat.KEY_MIME))); codec=decoder
             decoder.configure(fmt,null,null,0); decoder.start()
             var inputEnded=false; var outputEnded=false; var channels=0; var rate=0; var encoding=C.ENCODING_PCM_16BIT
-            var configured=false; var idle=0
+            var configured=false; var lastOutput=android.os.SystemClock.elapsedRealtime()
             val info=MediaCodec.BufferInfo()
             file.outputStream().buffered().use { out ->
-                fun drain() {
-                    val data=sonic.output
-                    val bytes=ByteArray(data.remaining()); data.get(bytes)
-                    // Sonic preserves source channel count. Convert mono to stereo.
-                    if(channels==1) { var i=0; while(i+1<bytes.size) { out.write(bytes,i,2); out.write(bytes,i,2); i+=2 } }
-                    else out.write(bytes)
+                var pcmBytes=ByteArray(65536)
+                var stereoBytes=ByteArray(131072)
+                fun writePcm(data: ByteBuffer) {
+                    val size=data.remaining()
+                    if(pcmBytes.size<size) pcmBytes=ByteArray(size)
+                    data.get(pcmBytes,0,size)
+                    if(channels==1) {
+                        if(stereoBytes.size<size*2) stereoBytes=ByteArray(size*2)
+                        var i=0
+                        while(i+1<size) {
+                            stereoBytes[i*2]=pcmBytes[i]; stereoBytes[i*2+1]=pcmBytes[i+1]
+                            stereoBytes[i*2+2]=pcmBytes[i]; stereoBytes[i*2+3]=pcmBytes[i+1]; i+=2
+                        }
+                        out.write(stereoBytes,0,size*2)
+                    } else out.write(pcmBytes,0,size)
                 }
+                fun drain() { writePcm(sonic.output) }
                 while(!outputEnded) {
                     currentCoroutineContext().ensureActive()
                     if(!inputEnded) {
-                        val index=decoder.dequeueInputBuffer(10000)
+                        val index=decoder.dequeueInputBuffer(0)
                         if(index>=0) {
                             val input=requireNotNull(decoder.getInputBuffer(index)); input.clear()
                             val size=extractor.readSampleData(input,0)
@@ -83,7 +102,7 @@ class AudioExport(private val context: Context) {
                             } else { decoder.queueInputBuffer(index,0,size,time,0); extractor.advance() }
                         }
                     }
-                    val index=decoder.dequeueOutputBuffer(info,10000)
+                    val index=decoder.dequeueOutputBuffer(info,1000)
                     if(index==MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         val of=decoder.outputFormat
                         channels=of.getInteger(MediaFormat.KEY_CHANNEL_COUNT); rate=of.getInteger(MediaFormat.KEY_SAMPLE_RATE)
@@ -93,7 +112,7 @@ class AudioExport(private val context: Context) {
                         sonic.setSpeed(clip.speed); sonic.setPitch(2.0.pow(clip.pitchSemitones/12.0).toFloat()); sonic.setOutputSampleRateHz(RATE)
                         sonic.configure(AudioProcessor.AudioFormat(rate,channels,C.ENCODING_PCM_16BIT)); sonic.flush(); configured=true
                     } else if(index>=0) {
-                        idle=0
+                        lastOutput=android.os.SystemClock.elapsedRealtime()
                         if(info.size>0) {
                             check(configured)
                             val data=requireNotNull(decoder.getOutputBuffer(index)).duplicate().order(ByteOrder.nativeOrder())
@@ -101,22 +120,19 @@ class AudioExport(private val context: Context) {
                             val count=info.size/(channels*bytesPerSample)
                             val first=max(0L,ceil((clip.trimStartMs*1000-info.presentationTimeUs)*rate/1000000.0).toLong()).coerceAtMost(count.toLong()).toInt()
                             val last=ceil((clip.trimEndMs*1000-info.presentationTimeUs)*rate/1000000.0).toLong().coerceIn(first.toLong(),count.toLong()).toInt()
-                            val pcm=ByteBuffer.allocateDirect((last-first)*channels*2).order(ByteOrder.nativeOrder())
                             data.position(info.offset+first*channels*bytesPerSample)
-                            repeat((last-first)*channels) {
-                                val value=if(encoding==C.ENCODING_PCM_FLOAT) (data.float.coerceIn(-1f,1f)*32767).toInt().toShort() else data.short
-                                pcm.putShort(value)
+                            data.limit(info.offset+last*channels*bytesPerSample)
+                            val pcm=if(encoding==C.ENCODING_PCM_16BIT) data.slice().order(ByteOrder.nativeOrder()) else {
+                                ByteBuffer.allocateDirect((last-first)*channels*2).order(ByteOrder.nativeOrder()).apply {
+                                    while(data.hasRemaining()) putShort((data.float.coerceIn(-1f,1f)*32767).toInt().toShort())
+                                    flip()
+                                }
                             }
-                            pcm.flip()
-                            if(sonic.isActive) { sonic.queueInput(pcm); drain() }
-                            else {
-                                val bytes=ByteArray(pcm.remaining()); pcm.get(bytes)
-                                if(channels==1) { var i=0; while(i<bytes.size) { out.write(bytes,i,2); out.write(bytes,i,2); i+=2 } } else out.write(bytes)
-                            }
+                            if(sonic.isActive) { sonic.queueInput(pcm); drain() } else writePcm(pcm)
                         }
                         outputEnded=info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                         decoder.releaseOutputBuffer(index,false)
-                    } else { idle++; check(idle<3000) { "Decoder tidak merespons: " + clip.name } }
+                    } else { check(android.os.SystemClock.elapsedRealtime()-lastOutput<30000) { "Decoder tidak merespons: " + clip.name } }
                 }
                 if(configured && sonic.isActive) { sonic.queueEndOfStream(); drain() }
             }
@@ -162,37 +178,69 @@ class AudioExport(private val context: Context) {
             fmt.setInteger(MediaFormat.KEY_BIT_RATE,bitrate); fmt.setInteger(MediaFormat.KEY_AAC_PROFILE,MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             codec.configure(fmt,null,null,MediaCodec.CONFIGURE_FLAG_ENCODE); codec.start()
             val mux=MediaMuxer(result.path,MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4); muxer=mux
-            var track=-1; var frames=0L; var inputEnded=false; var ended=false; var idle=0
+            var track=-1; var frames=0L; var inputEnded=false; var ended=false; var lastOutput=android.os.SystemClock.elapsedRealtime(); var lastPercent=-1
             val info=MediaCodec.BufferInfo()
             RandomAccessFile(wav,"r").use { input ->
                 input.seek(44)
+                val bytes=ByteArray(16384)
                 while(!ended) {
                     currentCoroutineContext().ensureActive()
                     if(!inputEnded) {
-                        val idx=codec.dequeueInputBuffer(10000)
+                        val idx=codec.dequeueInputBuffer(0)
                         if(idx>=0) {
                             val b=requireNotNull(codec.getInputBuffer(idx)); b.clear()
-                            val bytes=ByteArray(min(16384,b.remaining()/4*4)); val n=input.read(bytes)
+                            val n=input.read(bytes,0,min(bytes.size,b.remaining()/4*4))
                             val timestamp=frames*1000000/RATE
                             if(n<0) { codec.queueInputBuffer(idx,0,0,timestamp,MediaCodec.BUFFER_FLAG_END_OF_STREAM); inputEnded=true }
                             else { b.put(bytes,0,n); codec.queueInputBuffer(idx,0,n,timestamp,0); frames+=n/4 }
                         }
                     }
-                    val idx=codec.dequeueOutputBuffer(info,10000)
+                    val idx=codec.dequeueOutputBuffer(info,1000)
                     if(idx==MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) { track=mux.addTrack(codec.outputFormat); mux.start(); started=true }
                     else if(idx>=0) {
-                        idle=0
+                        lastOutput=android.os.SystemClock.elapsedRealtime()
                         if(info.size>0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG==0) {
                             val data=requireNotNull(codec.getOutputBuffer(idx)); data.position(info.offset); data.limit(info.offset+info.size)
                             mux.writeSampleData(track,data,info)
                         }
                         ended=info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM!=0; codec.releaseOutputBuffer(idx,false)
-                    } else { idle++; check(idle<3000) { "Encoder AAC tidak merespons" } }
-                    if(frames%44100<4096) progress("Mengodekan M4A " + (frames*4*100/(wav.length()-44).coerceAtLeast(1)).coerceAtMost(100) + "%")
+                    } else { check(android.os.SystemClock.elapsedRealtime()-lastOutput<30000) { "Encoder AAC tidak merespons" } }
+                    val percent=(frames*4*100/(wav.length()-44).coerceAtLeast(1)).coerceAtMost(100).toInt()
+                    if(percent!=lastPercent) { progress("Mengodekan M4A $percent%"); lastPercent=percent }
                 }
             }
         } finally { runCatching { if(started) muxer?.stop() }; muxer?.release(); runCatching { codec.stop() }; codec.release() }
     }
+    private suspend fun encodeMp3(wav: File, result: File, bitrate: Int, progress: (String)->Unit) {
+        val handle=Mp3Encoder.create(bitrate)
+        check(handle!=0L) { "Encoder MP3 tidak dapat dimulai" }
+        try {
+            RandomAccessFile(wav,"r").use { input ->
+                result.outputStream().buffered(65536).use { out ->
+                    input.seek(44)
+                    val bytes=ByteArray(16384)
+                    val pcm=ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder())
+                    val encoded=ByteArray(16384)
+                    var lastPercent=-1
+                    while(true) {
+                        currentCoroutineContext().ensureActive()
+                        val n=input.read(bytes)
+                        if(n<0) break
+                        pcm.clear(); pcm.put(bytes,0,n); pcm.flip()
+                        val size=Mp3Encoder.encode(handle,pcm,n/4,encoded)
+                        check(size>=0) { "Encoder MP3 gagal ($size)" }
+                        out.write(encoded,0,size)
+                        val percent=((input.filePointer-44)*100/(wav.length()-44).coerceAtLeast(1)).toInt()
+                        if(percent!=lastPercent) { progress("Mengodekan MP3 $percent%"); lastPercent=percent }
+                    }
+                    val size=Mp3Encoder.flush(handle,encoded)
+                    check(size>=0) { "Penyelesaian MP3 gagal ($size)" }
+                    out.write(encoded,0,size)
+                }
+            }
+        } finally { Mp3Encoder.close(handle) }
+    }
+
 }
 fun wavHeader(dataSize: Long): ByteArray = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN).apply {
     put("RIFF".toByteArray()); putInt((dataSize+36).toInt()); put("WAVEfmt ".toByteArray()); putInt(16)
