@@ -217,7 +217,7 @@ private fun Timeline(project: EditorProject, selectedId: String?, vm: EditorView
         Row(Modifier.fillMaxWidth()) {
             Column(Modifier.width(60.dp).padding(top=32.dp)) {
                 project.layers.forEach { layer ->
-                    Column(Modifier.height(68.dp).fillMaxWidth().clickable { onTrackMenu(layer.id) }.padding(top=6.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+                    Column(Modifier.height(52.dp).fillMaxWidth().clickable { onTrackMenu(layer.id) }.padding(top=6.dp),horizontalAlignment=Alignment.CenterHorizontally) {
                         Text(layer.name,fontSize=10.sp,color=Color.LightGray,maxLines=1)
                         Icon(Icons.Outlined.MoreHoriz,"Atur ${layer.name}",Modifier.size(24.dp),tint=Gold)
                     }
@@ -227,7 +227,7 @@ private fun Timeline(project: EditorProject, selectedId: String?, vm: EditorView
             val timelineWidth = maxWidth * zoom
             val scroll = rememberScrollState()
             Column(Modifier.horizontalScroll(scroll)) {
-                Box(Modifier.width(timelineWidth).height((32 + project.layers.size * 68).dp)) {
+                Box(Modifier.width(timelineWidth).height((32 + project.layers.size * 52).dp)) {
                     Column {
                         Canvas(Modifier.width(timelineWidth).height(32.dp)
                             .pointerInput(duration, timelineWidth) {
@@ -250,17 +250,17 @@ private fun Timeline(project: EditorProject, selectedId: String?, vm: EditorView
                             }
                         }
                         project.layers.forEachIndexed { layerIndex, layer ->
-                            Box(Modifier.width(timelineWidth).height(68.dp).background(Panel)) {
+                            Box(Modifier.width(timelineWidth).height(52.dp).background(Panel)) {
 
                                 layer.clips.forEach { clip ->
                                     var drag by remember(clip.id) { mutableStateOf(Offset.Zero) }
                                     val widthPx=with(density) { timelineWidth.toPx() }
-                                    val rowPx=with(density) { 68.dp.toPx() }
+                                    val rowPx=with(density) { 52.dp.toPx() }
                                     val start = timelineWidth * (clip.timelineStartMs.toFloat() / duration)
                                     val width = timelineWidth * (clip.editedDurationMs.toFloat() / duration)
                                     Column(Modifier.offset(x = start).offset { IntOffset(drag.x.roundToInt(),drag.y.roundToInt()) }
                                         .zIndex(if(drag!=Offset.Zero) 2f else 0f)
-                                        .width(width).height(58.dp)
+                                        .width(width).height(46.dp)
                                         .pointerInput(clip.id,clip.timelineStartMs,layerIndex,widthPx,duration) {
                                             detectDragGesturesAfterLongPress(
                                                 onDragStart={ vm.select(clip.id); vm.stop() },
